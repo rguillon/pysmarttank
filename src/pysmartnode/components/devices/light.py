@@ -28,6 +28,7 @@ import time
 
 import uasyncio as asyncio
 from pysmartnode import logging
+from pysmartnode import config
 from pysmartnode.utils.component import ComponentBase, DISCOVERY_SWITCH
 
 COMPONENT_NAME = "Light"
