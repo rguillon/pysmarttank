@@ -72,6 +72,7 @@ class Light(ComponentBase):
         if self._has_rgb:
             self.states['rgb'] = {'r':0, 'g':0, 'b':0}
 
+        self._transistion_task = None
         gc.collect()
 
     async def _init_network(self):
@@ -87,8 +88,8 @@ class Light(ComponentBase):
     async def _remove(self):
         """Will be called if the component gets removed"""
         # Cancel any loops/asyncio coroutines started by the component
-        if self._loop_task is not None:
-            self._loop_task.cancel()
+        if self._transistion_task is not None:
+            self._transistion_task.cancel()
         await super()._remove()
 
     async def _discovery(self, register=True):
@@ -176,9 +177,9 @@ class Light(ComponentBase):
         """
         try:
             transition = message['transition']
-            if self._loop_task is not None:
-                self._loop_task.cancel()
-            self._loop_task = asyncio.create_task(self._transition_loop(transition * 1000, message))
+            if self._transistion_task is not None:
+                self._transistion_task.cancel()
+            self._transistion_task = asyncio.create_task(self._transition_loop(transition * 1000, message))
             return False
         except KeyError:
             self._set_light(message)

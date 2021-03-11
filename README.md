@@ -19,7 +19,7 @@ libraries into micropython/port/esp32/modules, build and deploy the firmeware.
 I had to reserve more space for the app partition than the default values, reducing the VFS partition to 1Mb
 but that's good enough for me needs: edit micropython/port/esp32/partitions.csv
 
-```
+```222222222
 # Notes: the offset of the partition table itself is set in
 # $ESPIDF/components/partition_table/Kconfig.projbuild and the
 # offset of the factory/ota_0 partition is set in makeimg.py
