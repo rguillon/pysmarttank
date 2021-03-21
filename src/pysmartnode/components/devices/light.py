@@ -43,13 +43,14 @@ _unit_index = -1
 
 
 class Light(ComponentBase):
-    def __init__(self, friendly_name=None, discover=True, light=None, has_brightness=True, has_rgb=True, **kwargs):
+    def __init__(self, friendly_name=None, discover=True, light1=None, lightG=None, lightB=None, has_brightness=True, has_rgb=True, **kwargs):
         """
         :param friendly_name: friendly name shown in homeassistant gui with mqtt discovery
         :param discover:
-        :param light: the object that will be called to drive the light, is expected to have a on and off method,
-        plus a scale and brightness methods; if the light shall manage brightness, and a color method for RGB lights,
-        all the services are expected to be non-blocking
+        :param light1: the object that will be called to drive the light, is expected to have a setDuty  and a scale
+                       method, in case of RGB, this light will be used for red
+        :param lightG: the object called to set the Green light
+        :param lightB: the object called to set the Blue light
         :param has_brightness: true if the light shall manage brightness
         :param has_rgb: true if the light shall manage rgb
         """
@@ -62,7 +63,9 @@ class Light(ComponentBase):
         _mqtt.subscribeSync(self._command_topic, self.on_set, self, check_retained_state=True)
 
         self._frn = friendly_name
-        self._light = light
+        self._light1 = light1
+        self._lightG = lightG
+        self._lightB = lightB
 
         self.states = {'state': 'OFF'}
         self._has_brightness = has_brightness
@@ -72,24 +75,18 @@ class Light(ComponentBase):
         if self._has_rgb:
             self.states['rgb'] = {'r':0, 'g':0, 'b':0}
 
-        self._transistion_task = None
+        self._transition_task = None
         gc.collect()
 
     async def _init_network(self):
         await super()._init_network()
 
-    async def _loop(self):
-        while True:
-            await asyncio.sleep(1)
-            if self.is_updated:
-                await _mqtt.publish(self._command_topic[:-4], json.dumps(self.states), qos=1)
-                self.is_updated = False
 
     async def _remove(self):
         """Will be called if the component gets removed"""
         # Cancel any loops/asyncio coroutines started by the component
-        if self._transistion_task is not None:
-            self._transistion_task.cancel()
+        if self._transition_task is not None:
+            self._transition_task.cancel()
         await super()._remove()
 
     async def _discovery(self, register=True):
@@ -106,7 +103,7 @@ class Light(ComponentBase):
         # For some reason homeassistant needs a json schema to accept brightness and rgb
         discover_switch = DISCOVERY_SWITCH + '"schema":"json",'
         if self._has_brightness:
-            discover_switch += '"brightness":true, "brightness_scale":{}, '.format(self._light.scale())
+            discover_switch += '"brightness":true, "brightness_scale":{}, '.format(self._light1.scale())
         if self._has_rgb:
             discover_switch += '"rgb":true,'
 
@@ -119,28 +116,39 @@ class Light(ComponentBase):
         gc.collect()
 
     def _set_light(self, value):
-        try:
-            self.states['brightness'] = value['brightness']
-            self._light.brightness(self.states['brightness'])
-        except KeyError:
-            pass
-        try:
-            self.states['color'] = value['color']
-            self._light.color(self.states['color'])
-        except KeyError:
-            pass
-        self.states['state'] = value['state']
-        if self.states['state'] == 'ON':
-            self._light.on()
+        if not self._has_brightness:
+            if self.states['state'] is 'ON':
+                self._light1.setDuty(self._light.scale())
+            else:
+                self._light1.setDuty(0)
         else:
-            self._light.off()
+            try:
+                self.states['brightness'] = value['brightness']
+            except KeyError:
+                pass
+
+            if self._has_rgb:
+                try:
+                    self.states['color'] = value['color']
+                except KeyError:
+                    pass
+                # RGB values are always in the 0..255 range in HA, no matter the scale
+                self._light1.setDuty(self.states['brightness'] * self.states['color']['r'] / 255)
+                self._lightG.setDuty(self.states['brightness'] * self.states['color']['g'] / 255)
+                self._lightB.setDuty(self.states['brightness'] * self.states['color']['b'] / 255)
+            else:
+                self._light1.setDuty(self.states['brightness'])
+
+
+        self.states['state'] = value['state']
+
 
     async def _transition_loop(self, t_ms, target):
         """
         A transition loop that will reach the target state in the given amount of time.
         :param t_ms: the transition time in milliseconds
         :param target: the target state
-        :return:
+        :return:²
         """
         start_time = time.ticks_ms()
         t = 0
@@ -175,11 +183,12 @@ class Light(ComponentBase):
         :param retained: bool
         :return:
         """
+        # cancel any transition in progress
+        if self._transition_task is not None:
+            self._transition_task.cancel()
         try:
             transition = message['transition']
-            if self._transistion_task is not None:
-                self._transistion_task.cancel()
-            self._transistion_task = asyncio.create_task(self._transition_loop(transition * 1000, message))
+            self._transition_task = asyncio.create_task(self._transition_loop(transition * 1000, message))
             return False
         except KeyError:
             self._set_light(message)
