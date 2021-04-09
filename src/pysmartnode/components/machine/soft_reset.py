@@ -5,7 +5,7 @@
 """
 example config:
 {
-    package: .switches.soft_reset
+    package: .machine.soft_reset
     component: SOFT_RESET
     constructor_args: {
         # instance_name: name  #optional, name of the instance, will be generated automatically
@@ -37,10 +37,14 @@ class SoftReset(ComponentSwitch):
             "{!s}".format(COMPONENT_NAME), is_request=True)
         global _unit_index
         _unit_index += 1
+        self._state = False
+
         super().__init__(COMPONENT_NAME, __version__, _unit_index, mqtt_topic=mqtt_topic,
                          instance_name=instance_name or "{!s}".format(COMPONENT_NAME),
                          **kwargs)
 
     async def _on(self):
-        machine.soft_reset()
+        _mqtt.close()
+
+        machine.reset()
         return True

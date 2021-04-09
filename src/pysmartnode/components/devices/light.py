@@ -20,8 +20,8 @@ example config for Light:
 }l
 """
 
-__updated__ = "2021-01-16"
-__version__ = "0.1"
+__updated__ = "2021-04-09"
+__version__ = "0.5"
 
 import gc
 import time
@@ -73,7 +73,7 @@ class Light(ComponentBase):
             self.states['brightness'] = 0
         self._has_rgb = has_rgb
         if self._has_rgb:
-            self.states['rgb'] = {'r':0, 'g':0, 'b':0}
+            self.states['color'] = {'r':255, 'g':255, 'b':255}
 
         self._transition_task = None
         gc.collect()
@@ -113,9 +113,16 @@ class Light(ComponentBase):
         else:
             await self._deleteDiscovery(_COMPONENT_TYPE, name)
         del name, component_topic, friendly_name
+        # send the full state on startup so the HA has the same values as the device
+        await self._send_full_state()
         gc.collect()
 
-    def _set_light(self, value):
+    async def _set_light(self, value):
+        try:
+            self.states['state'] = value['state']
+        except KeyError:
+            pass
+
         if not self._has_brightness:
             if self.states['state'] is 'ON':
                 self._light1.setDuty(self._light.scale())
@@ -127,21 +134,38 @@ class Light(ComponentBase):
             except KeyError:
                 pass
 
+            # do not modify the saved brightness if the state is off as HA will expect the light to keep the same
+            # brightness when putting it back on
+            is_off = False
+            try:
+                if value['state'] is 'OFF':
+                    is_off = True
+            except KeyError:
+                pass
+
+            # if ON with no brightness specified, set the max brightness
+            try:
+                if value['state'] is 'ON' and 'brightness' not in value:
+                    self.states['brightness'] = self._light1.scale()
+            except KeyError:
+                pass
+
+
             if self._has_rgb:
                 try:
                     self.states['color'] = value['color']
                 except KeyError:
                     pass
                 # RGB values are always in the 0..255 range in HA, no matter the scale
-                self._light1.setDuty(self.states['brightness'] * self.states['color']['r'] / 255)
-                self._lightG.setDuty(self.states['brightness'] * self.states['color']['g'] / 255)
-                self._lightB.setDuty(self.states['brightness'] * self.states['color']['b'] / 255)
+                self._light1.setDuty(0 if is_off else self.states['brightness'] * self.states['color']['r'] / 255)
+                self._lightG.setDuty(0 if is_off else self.states['brightness'] * self.states['color']['g'] / 255)
+                self._lightB.setDuty(0 if is_off else self.states['brightness'] * self.states['color']['b'] / 255)
             else:
-                self._light1.setDuty(self.states['brightness'])
+                self._light1.setDuty(0 if is_off else self.states['brightness'])
+        await self._send_full_state()
 
-
-        self.states['state'] = value['state']
-
+    async def _send_full_state(self):
+        await _mqtt.publish(self._command_topic[:-4], json.dumps(self.states), qos=1)
 
     async def _transition_loop(self, t_ms, target):
         """
@@ -153,6 +177,17 @@ class Light(ComponentBase):
         start_time = time.ticks_ms()
         t = 0
         start = self.states.copy()
+        print("start :")
+        print(start)
+        print("target :")
+        print(target)
+
+        # For light_off with a transition, HA sends no brightness
+        try:
+            if target['state'] is 'OFF':
+                target['brightness'] = 0
+        except KeyError:
+            pass
 
         while t < t_ms:
             current = {'state': 'ON'}
@@ -167,13 +202,12 @@ class Light(ComponentBase):
                                                   t * (target['color'][col] - start['color'][col]) / t_ms
             except KeyError:
                 pass
-            self._set_light(current)
-            await _mqtt.publish(self._command_topic[:-4], json.dumps(self.states), qos=1)
+            await self._set_light(current)
             await asyncio.sleep(1)
             t = time.ticks_ms() - start_time
 
-        self._set_light(target)
-        await _mqtt.publish(self._command_topic[:-4], json.dumps(self.states), qos=1)
+        await self._set_light(target)
+
 
     async def on_set(self, topic, message, retained):
         """
@@ -189,7 +223,7 @@ class Light(ComponentBase):
         try:
             transition = message['transition']
             self._transition_task = asyncio.create_task(self._transition_loop(transition * 1000, message))
-            return False
         except KeyError:
-            self._set_light(message)
-            return True
+            await self._set_light(message)
+        # set light will already send the new state
+        return False
