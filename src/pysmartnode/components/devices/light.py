@@ -143,13 +143,6 @@ class Light(ComponentBase):
             except KeyError:
                 pass
 
-            # if ON with no brightness specified, set the max brightness
-            try:
-                if value['state'] is 'ON' and 'brightness' not in value:
-                    self.states['brightness'] = self._light1.scale()
-            except KeyError:
-                pass
-
 
             if self._has_rgb:
                 try:

@@ -1,7 +1,7 @@
 
 WIFI_SSID = "iot"
 WIFI_PASSPHRASE = "12345678"
-MQTT_HOST = "192.168.1.2"
+MQTT_HOST = "valhalla"
 MQTT_PORT = 1883
 
 

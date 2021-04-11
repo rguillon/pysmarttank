@@ -25,10 +25,10 @@ from sys import platform
 
 class pyPWM:
     """
-    Just a base class to identify all instances of an PWM object sharing the same API
+    Base class to identify all instances of an PWM object sharing the same API
     """
 
-    def __init__(self,  pin, is_reverse=False):
+    def __init__(self,  pin, is_reverse=False, safe_value=0):
         self._pin = pin
         self.is_reverse = is_reverse
         if platform == "esp8266" or platform == "esp32":
@@ -36,6 +36,8 @@ class pyPWM:
         else:
             raise NotImplementedError(
                 "Platform {!s} not implemented, please report".format(platform))
+        if safe_value is not None:
+            self.setDuty(safe_value)
 
     def setDuty(self, duty: int):
         """
@@ -57,9 +59,9 @@ class pyPWM:
         return self._scale
 
 
-def PWM(pin,  is_reverse=False) -> pyPWM:
+def PWM(pin,  is_reverse=False, safe_value=0) -> pyPWM:
     if type(pin) == str:
         raise TypeError("PWM pin can't be string")
 
-    return pyPWM(machine.PWM(machine.Pin(pin)), is_reverse=is_reverse)
+    return pyPWM(machine.PWM(machine.Pin(pin)), is_reverse=is_reverse, safe_value=0)
 
